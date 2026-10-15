@@ -1,0 +1,60 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+# In-tree maturin shim that stamps a git-describe version onto the Cargo.toml placeholder.
+build-backend = "ikgeo_build_backend"
+backend-path = ["build_backend"]
+
+[project]
+name = "py-ikgeo-kinematics"
+dynamic = ["version"]
+readme = "README.md"
+requires-python = ">=3.11"
+description = "General 6R inverse kinematics (IK-Geo) for industrial robots whose wrist is not spherical"
+authors = [{ name = "CEAD Group", email = "software@ceadgroup.com" }]
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+]
+dependencies = [
+    "numpy>=1.26.4",
+    "scipy>=1.16.0",
+]
+
+[project.optional-dependencies]
+polars = [
+    "polars>=1.22.0",
+]
+pandas = [
+    "pandas>=2.0.0",
+]
+test = [
+    "pytest",
+    "mypy",
+    "scipy-stubs",
+    "pandas-stubs",
+    "polars>=1.22.0",
+    "pandas>=2.0.0",
+    "py-opw-kinematics>=1.3.0",
+]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+python-source = "python"
+module-name = "py_ikgeo_kinematics._internal"
+include = ["python/py_ikgeo_kinematics/py.typed"]
+
+[tool.uv]
+# Rebuild an editable install when the commit or tag moves, so its version follows git.
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "Cargo.toml" },
+    { file = "**/*.rs" },
+    { git = { commit = true, tags = true } },
+]
+
+[tool.ruff]
+line-length = 100
+
+[project.urls]
+Homepage = "https://github.com/CEAD-group/py-ikgeo-kinematics"
+Repository = "https://github.com/CEAD-group/py-ikgeo-kinematics.git"

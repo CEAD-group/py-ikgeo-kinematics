@@ -1,0 +1,20 @@
+[workspace]
+members = ["ikgeo"]
+
+[package]
+name = "py-ikgeo-kinematics"
+version = "0.0.0-dev"
+edition = "2021"
+license = "MIT"
+description = "Python bindings for a general 6R inverse kinematics solver (IK-Geo subproblem decomposition)"
+
+[lib]
+name = "py_ikgeo_kinematics"
+crate-type = ["cdylib"]
+
+[dependencies]
+nalgebra = "0.34"
+rayon = "1"
+numpy = "0.27"
+pyo3 = "0.27"
+ikgeo = { path = "ikgeo" }

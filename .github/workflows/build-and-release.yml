@@ -1,0 +1,158 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install ruff
+      - run: ruff check .
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test -p ikgeo --release
+
+  wheels:
+    needs: [lint]
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13', '3.14']
+        platform:
+          - runner: ubuntu-latest
+            target: x86_64
+            name: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            target: aarch64
+            name: linux-aarch64
+          - runner: windows-latest
+            target: x64
+            name: windows-x64
+          - runner: macos-15
+            target: aarch64
+            name: macos-aarch64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Stamp release version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: python
+        run: |
+          import os
+          import re
+          from pathlib import Path
+          path = Path('Cargo.toml')
+          version = os.environ['GITHUB_REF_NAME'].removeprefix('v')
+          path.write_text(re.sub(r'^version = ".*"', f'version = "{version}"', path.read_text(), count=1, flags=re.M))
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist --interpreter ${{ runner.os == 'Linux' && format('python{0}', matrix.python) || 'python' }}
+          sccache: 'true'
+          manylinux: auto
+      - name: Install wheel with test dependencies
+        shell: python
+        run: |
+          import subprocess
+          import sys
+          from pathlib import Path
+          wheels = list(Path('dist').glob('*.whl'))
+          assert len(wheels) == 1, wheels
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', f'{wheels[0]}[test]'])
+      - run: python -m pytest
+      - run: python -m mypy python
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.platform.name }}-py${{ matrix.python }}
+          path: dist
+
+  sdist:
+    needs: [lint]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Stamp release version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: python
+        run: |
+          import os
+          import re
+          from pathlib import Path
+          path = Path('Cargo.toml')
+          version = os.environ['GITHUB_REF_NAME'].removeprefix('v')
+          path.write_text(re.sub(r'^version = ".*"', f'version = "{version}"', path.read_text(), count=1, flags=re.M))
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [lint, rust, wheels, sdist]
+    permissions:
+      # Use to sign the release artifacts
+      id-token: write
+      # Used to upload release artifacts
+      contents: write
+      # Used to generate artifact attestation
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+      # Attestations need a public repo on the Team plan.
+      - name: Generate artifact attestation
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: 'wheels-*/*'
+      # Off until the PyPI trusted publisher exists; set the repo variable to enable.
+      - name: Publish to PyPI
+        if: vars.PUBLISH_TO_PYPI == 'true'
+        uses: PyO3/maturin-action@v1
+        with:
+          command: upload
+          args: --non-interactive --skip-existing wheels-*/*
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            wheels-sdist/*.tar.gz
+            wheels-windows-*/*.whl
+            wheels-linux-*/*.whl
+            wheels-macos-*/*.whl
+          prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') }}

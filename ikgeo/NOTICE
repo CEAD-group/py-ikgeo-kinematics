@@ -1,0 +1,26 @@
+The ikgeo crate is derived from:
+
+- rpiRobotics/ik-geo (rust/), BSD-3-Clause, Rensselaer Polytechnic Institute.
+  Paper: A. J. Elias and J. T. Wen, "IK-Geo: Unified Robot Inverse Kinematics
+  Using Subproblem Decomposition", Mechanism and Machine Theory, 2025
+  (arXiv:2211.05737). The upstream license text is in LICENSE-upstream.
+  The CSV files in test_cases/ are the upstream test_cases/ (10 rows each).
+- Verdant-Evolution/ik-geo-rust 0.1.2, BSD-3-Clause, Verdant Evolution LLC
+  (packaging reference only, no code copied).
+
+Changes made here:
+
+- nalgebra 0.34.
+- The argmin Nelder-Mead used by the 2D search is replaced with a local
+  implementation (grid, blob clearing, then Nelder-Mead per seed, tolerance
+  1e-12 so roots round-trip through forward kinematics). The 1D search is
+  based on upstream sign-change bracketing with false position. Added adaptive
+  bracketing and tangent-root candidates for the specialized search.
+- fastrand is replaced with a seedable thread-local xorshift64* generator.
+- Test CSVs are read with the rotation column-major, as MATLAB wrote them.
+- The correctness tests assert per-family miss rates; upstream only printed.
+- ikfast linking, the demo binary and the criterion benchmark are dropped.
+- Added family detection, joint conventions, forward kinematics, root
+  polishing and validation, warm-started tracking, Jacobian and reach margins.
+
+The original BSD-3-Clause license text must be kept alongside this file.

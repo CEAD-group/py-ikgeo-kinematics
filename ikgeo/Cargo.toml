@@ -1,0 +1,10 @@
+[package]
+name = "ikgeo"
+version = "0.0.0-dev"
+edition = "2021"
+license = "BSD-3-Clause"
+description = "IK-Geo 6R inverse kinematics: subproblem decomposition, closed form or 1D/2D search. Vendored from rpiRobotics/ik-geo and Verdant-Evolution/ik-geo-rust, see NOTICE."
+
+[dependencies]
+nalgebra = "0.34"
+rayon = "1"
