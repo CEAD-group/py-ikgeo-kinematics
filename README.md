@@ -38,18 +38,14 @@ axis directions and offsets directly to `KinematicModel(h, p)`, as in the
 import numpy as np
 from py_ikgeo_kinematics import KinematicModel, Robot
 
-model = KinematicModel.from_opw(
-    a1=0.1, c1=0.2, c2=0.3, c3=0.25, c4=0.05,
-)
+model = KinematicModel.from_opw(a1=0.1, c1=0.2, c2=0.3, c3=0.25, c4=0.05)
 robot = Robot(model, degrees=True)
 joints = (20.0, 30.0, -40.0, 10.0, 50.0, -20.0)
 
 pose = robot.forward(joints)
 solutions = robot.inverse(pose, current_joints=joints)
 assert solutions
-np.testing.assert_allclose(
-    robot.forward(solutions[0]).as_matrix(), pose.as_matrix(), atol=1e-9,
-)
+np.testing.assert_allclose(robot.forward(solutions[0]).as_matrix(), pose.as_matrix(), atol=1e-9)
 
 poses = robot.batch_forward(np.array([joints, joints]))
 path = robot.batch_inverse(poses, current_joints=joints)  # Shape (2, 6).
