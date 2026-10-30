@@ -26,6 +26,11 @@ class _DataFrameLike(Protocol):
 
 
 _JOINT_COLS = ["J1", "J2", "J3", "J4", "J5", "J6"]
+
+
+def _is_polars(frame: object) -> bool:
+    # pandas 3.1 added DataFrame.select, so duck typing on it misreads a pandas frame.
+    return type(frame).__module__.split(".")[0] == "polars"
 Joints: TypeAlias = tuple[float, float, float, float, float, float]
 JointsInput: TypeAlias = ArrayLike | _DataFrameLike
 
@@ -33,7 +38,7 @@ JointsInput: TypeAlias = ArrayLike | _DataFrameLike
 def _joints_array(joints: JointsInput) -> np.ndarray:
     frame: Any = joints
     if hasattr(frame, "to_numpy"):
-        if hasattr(frame, "select"):
+        if _is_polars(frame):
             arr = frame.select(_JOINT_COLS).to_numpy()
         else:
             arr = frame[_JOINT_COLS].to_numpy()
@@ -190,7 +195,7 @@ class Robot:
         if current_joints is not None:
             frame: Any = current_joints
             if hasattr(frame, "to_numpy"):
-                if hasattr(frame, "select"):
+                if _is_polars(frame):
                     arr = frame.select(_JOINT_COLS).to_numpy()
                     output_kwargs = {"schema": _JOINT_COLS}
                 else:
