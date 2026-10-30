@@ -321,7 +321,7 @@ def test_batch_roundtrip(robot: Any) -> None:
     assert np.isclose(joints_array, result, atol=1e-3).all()
 
 
-def test_batch_inverse_current_joints_signatures(robot: Any) -> None:
+def test_batch_inverse_current_joints_signatures(backend: Backend, robot: Any) -> None:
     pd = pytest.importorskip("pandas")
     pl = pytest.importorskip("polars")
     ee = RigidTransform.from_components(rotation=EE_ROTATION, translation=[0, 0, 0])
@@ -343,6 +343,8 @@ def test_batch_inverse_current_joints_signatures(robot: Any) -> None:
     assert isinstance(result, pl.DataFrame)
     assert result.shape == (2, 6) and list(result.columns) == cols
 
+    if backend.name == "opw" and hasattr(pd.DataFrame, "select"):
+        pytest.xfail("released py-opw-kinematics reads a pandas >= 3.1 frame as polars")
     pd_joints = pd.DataFrame({c: [float(v)] for c, v in zip(cols, start, strict=True)})
     result = robot.batch_inverse(poses, current_joints=pd_joints, ee_transform=ee)
     assert isinstance(result, pd.DataFrame)
