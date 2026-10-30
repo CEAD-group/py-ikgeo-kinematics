@@ -26,6 +26,11 @@ class _DataFrameLike(Protocol):
 
 
 _JOINT_COLS = ["J1", "J2", "J3", "J4", "J5", "J6"]
+
+
+def _is_polars(frame: object) -> bool:
+    # pandas 3.1 added DataFrame.select, so duck typing on it misreads a pandas frame.
+    return type(frame).__module__.split(".")[0] == "polars"
 Joints: TypeAlias = tuple[float, float, float, float, float, float]
 JointsInput: TypeAlias = ArrayLike | _DataFrameLike
 
@@ -33,7 +38,7 @@ JointsInput: TypeAlias = ArrayLike | _DataFrameLike
 def _joints_array(joints: JointsInput) -> np.ndarray:
     frame: Any = joints
     if hasattr(frame, "to_numpy"):
-        if hasattr(frame, "select"):
+        if _is_polars(frame):
             arr = frame.select(_JOINT_COLS).to_numpy()
         else:
             arr = frame[_JOINT_COLS].to_numpy()
@@ -190,7 +195,7 @@ class Robot:
         if current_joints is not None:
             frame: Any = current_joints
             if hasattr(frame, "to_numpy"):
-                if hasattr(frame, "select"):
+                if _is_polars(frame):
                     arr = frame.select(_JOINT_COLS).to_numpy()
                     output_kwargs = {"schema": _JOINT_COLS}
                 else:
@@ -245,7 +250,8 @@ class Robot:
         poses: RigidTransform,
         joint_limits: ArrayLike | None = None,
         ee_transform: RigidTransform | None = None,
-        threads: int = 1,
+        *,
+        threads: int | None = None,
     ) -> "ReachResult":
         """
         Inverse-kinematics branches found for each pose, with per-branch margins.
@@ -260,14 +266,21 @@ class Robot:
             (optional). Without limits every margin is ``+inf``. With limits,
             ``sigma_min`` is left NaN for branches outside them.
         :param ee_transform: End effector transformation (optional).
-        :param threads: Worker threads for the per-pose loop. The default 1 runs in the
-            calling thread; 0 uses one per available core. The GIL is released either
-            way. The pool is built per call, so threading a small batch costs more than
-            it saves.
+        :param threads: Keyword-only worker cap for the per-pose loop. None (the default)
+            uses the process-wide Rayon pool, so ``RAYON_NUM_THREADS`` applies; 1 runs
+            serially in the calling thread; n >= 2 uses a pool of n threads, built once
+            per n and kept for the life of the process. Below 1 raises ValueError,
+            except 0, a deprecated alias for None. Results do not depend on it, and the
+            GIL is released either way.
         :return: ReachResult with per-pose, per-branch arrays.
         """
-        if threads < 0:
-            raise ValueError("threads must be >= 0")
+        if threads == 0:
+            warnings.warn(
+                "threads=0 is deprecated; use threads=None for the global pool",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            threads = None
         matrix_array = np.ascontiguousarray(poses.as_matrix().reshape(-1, 16), dtype=np.float64)
         limits = None
         if joint_limits is not None:
@@ -276,7 +289,7 @@ class Robot:
                 raise ValueError("joint_limits must have shape (6, 2)")
             limits = [tuple(row) for row in limits_array]
         joints, limit_margin, extension, sigma_min, wrist, n_solutions = self._robot.reach(
-            matrix_array, limits, _ee_matrix(ee_transform), threads
+            matrix_array, limits, _ee_matrix(ee_transform), threads=threads
         )
         return ReachResult(
             joints=joints,

@@ -145,7 +145,7 @@ def test_columns_are_sorted_by_key(fixture: dict, robot: Robot) -> None:
 def test_threads_match_and_extension_is_per_pose(fixture: dict, robot: Robot) -> None:
     poses = RigidTransform.from_matrix(np.array(fixture["poses"][:200]).reshape(-1, 4, 4))
     one = robot.reach(poses, LIMITS, threads=1)
-    many = robot.reach(poses, LIMITS, threads=0)
+    many = robot.reach(poses, LIMITS)
     two = robot.reach(poses, LIMITS, threads=2)
     for a, b in ((one, many), (one, two)):
         assert np.array_equal(a.joints, b.joints, equal_nan=True)

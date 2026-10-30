@@ -93,14 +93,14 @@ def main() -> None:
 
     reach_poses = random_poses(robot, 20_000, 3)
     res1, t_r1 = timed(lambda: robot.reach(reach_poses, LIMITS, threads=1), repeats=2)
-    res0, t_r0 = timed(lambda: robot.reach(reach_poses, LIMITS, threads=0), repeats=2)
+    res0, t_r0 = timed(lambda: robot.reach(reach_poses, LIMITS, threads=None), repeats=2)
     same = np.array_equal(res1.joints, res0.joints, equal_nan=True)
     print(
         f"reach threads=1:          {t_r1 / len(reach_poses) * 1e6:8.1f} us/pose  "
         f"(20k poses, mean {res1.n_solutions.mean():.2f} roots, {np.mean(res1.n_solutions > 0):.3f} reachable)"
     )
     print(
-        f"reach threads=0:          {t_r0 / len(reach_poses) * 1e6:8.1f} us/pose  "
+        f"reach threads=None:       {t_r0 / len(reach_poses) * 1e6:8.1f} us/pose  "
         f"(speedup {t_r1 / t_r0:.1f}x, identical to threads=1: {same})"
     )
 
