@@ -105,7 +105,7 @@ fn push_matrix(out: &mut Vec<f64>, m: &Matrix4x4) {
 
 /// Product-of-exponentials model: `h` (3, 6) unit axis directions and `p` (3, 7)
 /// offsets base -> J1 -> ... -> J6 -> flange in the zero pose, in the model's length unit.
-#[pyclass(frozen)]
+#[pyclass(frozen, from_py_object)]
 #[derive(Clone)]
 pub struct KinematicModel {
     inner: robot::KinematicModel,
