@@ -1,8 +1,9 @@
 # py-ikgeo-kinematics: implementation plan
 
-Status (2026-10-15): steps 0 to 7 are implemented. v0.0.2 is the first PyPI release.
-The CI configuration builds and tests four platforms on Python 3.11–3.14;
-remote results must be checked before release. See README.md for usage and
+Status (2026-10-30): steps 0 to 7 are implemented. v0.0.2 was the first PyPI
+release; v0.0.4 is current, on PyO3 0.30. CI builds and tests four platforms on
+Python 3.11 to 3.15 and checks `ruff format`; remote results must be checked
+before release. See README.md for usage and
 current solver limitations.
 
 ## Working scope
@@ -119,7 +120,8 @@ machine-data export, and controller validation.
    the elbow.
 8. **Units and flags as py-opw**: `degrees=True` default, radians internally,
    `ee_transform` optional 4x4, public SciPy `RigidTransform` poses (internally flattened `(n, 16)` matrices),
-   NaN rows when no root is found, `threads` on `reach` with the GIL released.
+   NaN rows when no root is found, keyword-only `threads` on `reach` (None is the
+   global Rayon pool, 1 is serial, n is a cached pool of n) with the GIL released.
 9. **Versioning**: `0.0.0-dev` in Cargo.toml, stamped from the `v*` tag in CI,
    identical to py-opw-kinematics, and published to PyPI from the same
    workflow.
@@ -147,7 +149,7 @@ class Robot:
     def forward_frames(joints, ee_transform=None) -> RigidTransform         # Base, J1..J6, TCP
     def inverse(pose, current_joints=None, ee_transform=None) -> list[tuple6]   # cold, found roots, tuples
     def batch_inverse(poses: RigidTransform, current_joints=None, ee_transform=None) -> (n, 6)  # tracked
-    def reach(poses: RigidTransform, joint_limits=None, ee_transform=None, threads=1) -> ReachResult
+    def reach(poses: RigidTransform, joint_limits=None, ee_transform=None, *, threads=None) -> ReachResult
     def jacobian(joints, ee_transform=None) -> (6, 6)                  # new, exposed for TOPP and viz
 
 @dataclass(frozen=True, eq=False)
@@ -223,7 +225,7 @@ Each step is one PR against `main`, reviewable alone, with its tests.
 | `batch_forward` per pose | within 2x of py-opw | 0.133 us against py-opw 0.121 us (100k joints, NJ165) |
 | `inverse` cold, NJ4 | under 500 us | 95 us mean in Rust, 93 us through Python, 1000 random poses |
 | `batch_inverse` tracked, NJ4 | under 10 us per pose | 1.9 us in Rust, 2.1 us through Python, 100k-point printing path, 0 fallbacks |
-| `reach` per pose, NJ4, 16 branches | under 1 ms single thread | 107 us in Rust, 99 us through Python; 17.5 us with threads=0 on 10 cores |
+| `reach` per pose, NJ4, 16 branches | under 1 ms single thread | 107 us in Rust, 99 us through Python; 17.5 us with threads=None on 10 cores |
 
 Below these, a downstream path simulation stays IK-bound at roughly today's
 OPW cost (about 54 us per point end to end). Above them, revisit before step 8.

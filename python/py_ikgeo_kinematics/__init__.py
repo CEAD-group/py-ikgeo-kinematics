@@ -31,6 +31,8 @@ _JOINT_COLS = ["J1", "J2", "J3", "J4", "J5", "J6"]
 def _is_polars(frame: object) -> bool:
     # pandas 3.1 added DataFrame.select, so duck typing on it misreads a pandas frame.
     return type(frame).__module__.split(".")[0] == "polars"
+
+
 Joints: TypeAlias = tuple[float, float, float, float, float, float]
 JointsInput: TypeAlias = ArrayLike | _DataFrameLike
 

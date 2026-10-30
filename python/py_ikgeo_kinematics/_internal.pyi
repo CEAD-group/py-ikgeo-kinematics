@@ -15,7 +15,6 @@ class KinematicModel:
     def offsets(self) -> Joints: ...
     @property
     def flip_axes(self) -> Flags: ...
-
     def __init__(
         self,
         h: npt.ArrayLike,
