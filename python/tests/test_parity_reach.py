@@ -130,8 +130,8 @@ def test_nan_rows_and_threads(robots: tuple[opw.Robot, ikg.Robot], joints: np.nd
     arr = b.batch_forward(joints[:40]).as_matrix()
     arr[3] = np.nan
     arr[17, 1, 2] = np.nan
-    one = b._robot.reach(np.ascontiguousarray(arr.reshape(-1, 16)), None, None, 1)
-    many = b._robot.reach(np.ascontiguousarray(arr.reshape(-1, 16)), None, None, 0)
+    one = b._robot.reach(np.ascontiguousarray(arr.reshape(-1, 16)), None, None, threads=1)
+    many = b._robot.reach(np.ascontiguousarray(arr.reshape(-1, 16)), None, None)
     for x, y in zip(one, many):
         assert np.array_equal(x, y, equal_nan=True)
     joints_out, margin, extension, sigma, wrist, count = one

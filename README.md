@@ -96,7 +96,7 @@ arrays belong to the internal extension API.
 | `batch_joint_poses(joints)` | The joint frames stacked in pose order. |
 | `forward_frames(joints)` | Base, six joint frames, and TCP. |
 | `jacobian(joints)` | A `(6, 6)` geometric Jacobian, translation rows first, per radian. |
-| `reach(poses, joint_limits=None, threads=1)` | Solutions and margins described below. |
+| `reach(poses, joint_limits=None, *, threads=None)` | Solutions and margins described below. |
 
 These methods accept an optional `ee_transform` as a `RigidTransform`. For
 compatibility with py-opw-kinematics, a tool with rotation `R` and translation
@@ -118,8 +118,12 @@ interpolation with rotation SLERP.
 ## Reach results
 
 `reach` returns a frozen `ReachResult`; its NumPy arrays remain mutable.
-`threads=1` runs serially, and `threads=0` uses the available cores. The GIL is
-released during the solve.
+`threads=None` (the default) uses the process-wide Rayon pool, so
+`RAYON_NUM_THREADS` applies. `threads=1` runs serially in the calling thread,
+and `threads=n` uses a pool of `n` threads that is cached for the life of the
+process. Values below 1 raise `ValueError`; `threads=0` still means `None` but
+is deprecated. Results do not depend on `threads`. The GIL is released during
+the solve.
 
 | Field | Shape | Meaning |
 | --- | --- | --- |

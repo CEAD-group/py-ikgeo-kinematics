@@ -3,7 +3,7 @@
 use ikgeo::nalgebra::{
     Isometry3, Matrix3, Matrix3x6, Matrix4, Rotation3, Translation3, UnitQuaternion, Vector3,
 };
-use ikgeo::reach::PoseReach;
+use ikgeo::reach::{PoseReach, Workers};
 use ikgeo::robot::{self, Matrix3x7};
 use numpy::ndarray::{Array1, Array2, Array3};
 use numpy::{
@@ -27,6 +27,25 @@ const BRANCHES: usize = ikgeo::inverse::MAX_ROOTS;
 fn to_matrix(iso: &Isometry3<f64>) -> Matrix4x4 {
     let m = iso.to_matrix();
     std::array::from_fn(|r| std::array::from_fn(|c| m[(r, c)]))
+}
+
+/// The workers for a `threads` argument: None is the global pool, below 1 is an error.
+fn workers(threads: Option<isize>) -> PyResult<Workers> {
+    let threads = match threads {
+        None => None,
+        Some(t) => Some(
+            usize::try_from(t)
+                .ok()
+                .and_then(std::num::NonZeroUsize::new)
+                .ok_or_else(|| {
+                    PyValueError::new_err(format!(
+                        "threads must be a positive integer or None, got {t}"
+                    ))
+                })?,
+        ),
+    };
+    Workers::new(threads)
+        .map_err(|e| PyRuntimeError::new_err(format!("Failed to start threads: {e}")))
 }
 
 fn from_matrix(m: &Matrix4x4) -> Isometry3<f64> {
@@ -523,15 +542,18 @@ impl Robot {
     /// Every inverse-kinematics branch of (n, 16) TCP poses with margins, GIL released.
     /// Returns (joints (n, 16, 6), limit_margin (n, 16), extension (n,), sigma_min (n, 16),
     /// wrist (n, 16), n_solutions (n,)). Angles follow the degrees flag; sigma_min is per radian.
-    #[pyo3(signature = (poses, joint_limits=None, ee_transform=None, threads=1))]
+    /// threads: keyword-only worker cap; None uses the global pool, 1 runs in the
+    /// calling thread, below 1 raises ValueError.
+    #[pyo3(signature = (poses, joint_limits=None, ee_transform=None, *, threads=None))]
     fn reach<'py>(
         &self,
         py: Python<'py>,
         poses: PyReadonlyArray2<'py, f64>,
         joint_limits: Option<[[f64; 2]; 6]>,
         ee_transform: Option<Matrix4x4>,
-        threads: usize,
+        threads: Option<isize>,
     ) -> PyResult<ReachArrays> {
+        let workers = workers(threads)?;
         let poses = poses.as_array();
         if poses.ncols() != 16 {
             return Err(PyValueError::new_err("poses must have shape (n, 16)"));
@@ -566,7 +588,7 @@ impl Robot {
             let valid: Vec<Isometry3<f64>> = flanges.iter().flatten().copied().collect();
             let solved = self
                 .robot
-                .reach(&valid, limits.as_ref(), &tcp_in_flange, threads);
+                .reach(&valid, limits.as_ref(), &tcp_in_flange, &workers);
             let mut it = solved.into_iter();
             flanges
                 .iter()

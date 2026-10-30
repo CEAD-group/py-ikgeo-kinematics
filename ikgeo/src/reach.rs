@@ -8,8 +8,12 @@ use crate::robot::{axis_pairs, canonicalise, sigma_min, Robot};
 use crate::subproblems::auxiliary::rot;
 use nalgebra::{Isometry3, Matrix3, Vector3, Vector6};
 use rayon::prelude::*;
+use rayon::{ThreadPool, ThreadPoolBuildError, ThreadPoolBuilder};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::f64::consts::PI;
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Per-pose reach output. Columns are ordered by `BranchKey`; the order is
 /// deterministic per pose but a column is not the same physical branch from
@@ -319,25 +323,81 @@ impl Robot {
         out
     }
 
-    /// Reach for many flange poses with a rayon pool per call: `threads` 0 is one
-    /// per core, 1 runs in the calling thread.
+    /// Reach for many flange poses on `workers`; results do not depend on them.
     pub fn reach(
         &self,
         poses: &[Isometry3<f64>],
         limits: Option<&[(f64, f64); 6]>,
         tcp_in_flange: &Vector3<f64>,
-        threads: usize,
+        workers: &Workers,
     ) -> Vec<PoseReach> {
         let geo = self.reach_geometry();
         let one = |pose: &Isometry3<f64>| self.reach_pose_with(&geo, pose, limits, tcp_in_flange);
-        match threads {
-            1 => poses.iter().map(one).collect(),
-            0 => poses.par_iter().map(one).collect(),
-            n => rayon::ThreadPoolBuilder::new()
+        workers.install(poses.len(), || {
+            poses
+                .par_iter()
+                .with_min_len(workers.min_len())
+                .map(one)
+                .collect()
+        })
+    }
+}
+
+/// Where a batch's parallel work runs, chosen by a `threads` count.
+#[derive(Debug, Clone)]
+pub enum Workers {
+    /// No count: Rayon's global pool, so `RAYON_NUM_THREADS` applies.
+    Global,
+    /// One thread: no pool at all, everything runs in the calling thread.
+    Serial,
+    /// n >= 2 threads: a cached pool of exactly n workers.
+    Pool(Arc<ThreadPool>),
+}
+
+/// Pools for n >= 2 threads, one per size, kept for the life of the process
+/// because spawning the threads costs more than a small batch.
+static POOLS: OnceLock<Mutex<HashMap<usize, Arc<ThreadPool>>>> = OnceLock::new();
+
+impl Workers {
+    pub fn new(threads: Option<NonZeroUsize>) -> Result<Self, ThreadPoolBuildError> {
+        let n = match threads.map(NonZeroUsize::get) {
+            None => return Ok(Workers::Global),
+            Some(1) => return Ok(Workers::Serial),
+            Some(n) => n,
+        };
+        // A poisoned lock only means a panic elsewhere while holding it; the map is still valid.
+        let mut pools = POOLS
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if let Some(pool) = pools.get(&n) {
+            return Ok(Workers::Pool(Arc::clone(pool)));
+        }
+        let pool = Arc::new(
+            ThreadPoolBuilder::new()
                 .num_threads(n)
-                .build()
-                .map(|pool| pool.install(|| poses.par_iter().map(one).collect()))
-                .unwrap_or_else(|_| poses.iter().map(one).collect()),
+                .thread_name(move |i| format!("ikgeo-{n}-{i}"))
+                .build()?,
+        );
+        pools.insert(n, Arc::clone(&pool));
+        Ok(Workers::Pool(pool))
+    }
+
+    /// Minimum items per Rayon job: `usize::MAX` never splits, so a parallel
+    /// iterator called outside any pool runs entirely in the calling thread.
+    pub fn min_len(&self) -> usize {
+        match self {
+            Workers::Serial => usize::MAX,
+            _ => 1,
+        }
+    }
+
+    /// Run `op`, whose parallel iterators cover `len` items, on these workers.
+    /// With at most one item Rayon does not split, so the pool hop is skipped.
+    pub fn install<R: Send>(&self, len: usize, op: impl FnOnce() -> R + Send) -> R {
+        match self {
+            Workers::Pool(pool) if len > 1 => pool.install(op),
+            _ => op(),
         }
     }
 }
@@ -349,6 +409,43 @@ mod tests {
     use crate::robot::KinematicModel;
     use crate::subproblems::auxiliary::{random_angle, seed_random};
     use std::time::Instant;
+
+    #[test]
+    fn workers_cache_pools_and_keep_results() {
+        let n = |k| NonZeroUsize::new(k);
+        let (Workers::Pool(a), Workers::Pool(b)) =
+            (Workers::new(n(3)).unwrap(), Workers::new(n(3)).unwrap())
+        else {
+            panic!("threads = 3 must give a pool");
+        };
+        assert!(Arc::ptr_eq(&a, &b));
+        assert!(matches!(Workers::new(None).unwrap(), Workers::Global));
+        assert!(matches!(Workers::new(n(1)).unwrap(), Workers::Serial));
+
+        seed_random(5);
+        let robot = Robot::new(comau_nj4_220()).unwrap();
+        let poses: Vec<Isometry3<f64>> = (0..50)
+            .map(|_| robot.forward(&std::array::from_fn(|_| random_angle())))
+            .collect();
+        let run = |w: &Workers| robot.reach(&poses, None, &Vector3::zeros(), w);
+        let serial = run(&Workers::Serial);
+        for w in [Workers::Global, Workers::new(n(4)).unwrap()] {
+            for (x, y) in serial.iter().zip(run(&w)) {
+                assert_eq!(x.n_solutions, y.n_solutions);
+                assert_eq!(format!("{:?}", x.joints), format!("{:?}", y.joints));
+            }
+        }
+        // Serial never leaves the calling thread.
+        let me = std::thread::current().id();
+        let seen = Mutex::new(Vec::new());
+        Workers::Serial.install(100, || {
+            (0..100)
+                .into_par_iter()
+                .with_min_len(Workers::Serial.min_len())
+                .for_each(|_| seen.lock().unwrap().push(std::thread::current().id()))
+        });
+        assert!(seen.into_inner().unwrap().iter().all(|t| *t == me));
+    }
 
     #[allow(clippy::too_many_arguments)]
     fn opw_extension(a1: f64, a2: f64, b: f64, c1: f64, c2: f64, c3: f64, c: &Vector3<f64>) -> f64 {
@@ -537,7 +634,7 @@ mod tests {
                 .collect();
             let limits = [(-PI, PI); 6];
             let start = Instant::now();
-            let out = robot.reach(&poses, Some(&limits), &Vector3::zeros(), 1);
+            let out = robot.reach(&poses, Some(&limits), &Vector3::zeros(), &Workers::Serial);
             let us = start.elapsed().as_secs_f64() * 1e6 / n as f64;
             let branches: usize = out.iter().map(|p| p.n_solutions).sum();
             println!(

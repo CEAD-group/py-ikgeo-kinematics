@@ -88,7 +88,8 @@ class Robot:
         poses: npt.NDArray[np.float64],
         joint_limits: list[tuple[float, float]] | None = None,
         ee_transform: npt.NDArray[np.float64] | None = None,
-        threads: int = 1,
+        *,
+        threads: int | None = None,
     ) -> tuple[
         npt.NDArray[np.float64],
         npt.NDArray[np.float64],
@@ -100,6 +101,8 @@ class Robot:
         """
         Every inverse-kinematics branch of (n, 16) poses with margins.
 
+        :param threads: None uses the global pool, 1 runs in the calling thread,
+            n >= 2 a cached pool of n threads; below 1 raises ValueError.
         :return: (joints (n, 16, 6), limit_margin (n, 16), extension (n,),
             sigma_min (n, 16), wrist (n, 16), n_solutions (n,)).
         """

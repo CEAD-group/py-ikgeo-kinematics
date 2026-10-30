@@ -746,11 +746,13 @@ def test_sigma_min_skipped_outside_limits(robot_m: Any) -> None:
     assert np.array_equal(limited.sigma_min[0, inside], unlimited.sigma_min[0, inside])
 
 
-@pytest.mark.parametrize("threads", [0, 2, 4])
-def test_threads_give_identical_results(robot_m: Any, threads: int) -> None:
+# None is omitted rather than passed: released py-opw-kinematics still types threads as int.
+@pytest.mark.parametrize("threads", [None, 2, 4])
+def test_threads_give_identical_results(robot_m: Any, threads: int | None) -> None:
     poses = robot_m.batch_forward(_grid_joints()[::3])
-    single = robot_m.reach(poses, NJ165_LIMITS)
-    threaded = robot_m.reach(poses, NJ165_LIMITS, threads=threads)
+    single = robot_m.reach(poses, NJ165_LIMITS, threads=1)
+    kwargs = {} if threads is None else {"threads": threads}
+    threaded = robot_m.reach(poses, NJ165_LIMITS, **kwargs)
     for name in _reach_fields(single):
         assert np.array_equal(getattr(single, name), getattr(threaded, name), equal_nan=True)
 
